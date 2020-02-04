@@ -1,4 +1,3 @@
-install.packages("lxb")
 library(lxb)
 library(data.table)
 library(mclust)
@@ -41,7 +40,7 @@ lxb.aggregate.data<-function(path)
 }
 
 
-lxb.digital.thresholds<-function(df)
+lxb.digital.thresholds<-function(df,pdf.out=FALSE,sd.threshold=3)
 {
   df2<-df %>% group_by(Bead.ID) %>% summarise(n=n())
   #get bead values from DF
@@ -51,8 +50,44 @@ lxb.digital.thresholds<-function(df)
   {
     fit<-normalmixEM(df$RP1L.Peak[which(df$Bead.ID==df2$Bead.ID[i])])
     #plot(fit,which=2,breaks=40)
-    df2$EM.threshold[i]<-fit$mu[1]+(3*fit$sigma[1])  
+    
+    df2$EM.threshold[i]<-fit$mu[which(fit$mu==min(fit$mu))]+(sd.threshold*fit$sigma[which(fit$mu==min(fit$mu))])
+    if(pdf.out==TRUE){
+                      pdf(file = paste(df2$Bead.ID[i],".pdf",sep=""))
+                      par(mfrow=c(1,2))
+                      plot(sort(df$RP1L.Peak[which(df$Bead.ID==df2$Bead.ID[i])]))
+                      abline(h=df2$EM.threshold[i],lty=2,col="red")
+                      plot(fit,whichplots = 2)
+                      abline(v=df2$EM.threshold[i],lty=2,col="red")
+                                        dev.off()
+                      }
   }
+  df<-merge(df,df2,by="Bead.ID")
+  print(df2)
+  df$classification<-as.numeric(df$RP1L.Peak>df$EM.threshold)  
+  return(df)
+}
+
+lxb.digital.thresholds.locator<-function(df,pdf.out=FALSE,sd.threshold=3)
+{
+  df2<-df %>% group_by(Bead.ID) %>% summarise(n=n())
+  #get bead values from DF
+  df2$EM.threshold<-NA
+  df2$EM.threshold<-as.numeric(df2$EM.threshold)
+  
+  for(i in 1:length(df2$Bead.ID))
+  {
+    fit<-normalmixEM(df$RP1L.Peak[which(df$Bead.ID==df2$Bead.ID[i])])
+    #plot(fit,which=2,breaks=40)
+    
+    
+      plot(fit,whichplots = 2)
+      EM.threshold<-locator(n = 1)
+      df2$EM.threshold[i]<-EM.threshold$x
+      abline(v=df2$EM.threshold[i],lty=2,col="red")
+  }  
+    
+  
   df<-merge(df,df2,by="Bead.ID")
   print(df2)
   df$classification<-as.numeric(df$RP1L.Peak>df$EM.threshold)  
@@ -72,11 +107,13 @@ lapply(lxbs,lxb.parse)
 
 #aggregate the data
 a<-lxb.aggregate.data(path = "data_files")
-
+a$col<-substr(a$well,start = 1,stop = 1)
+a$row<-substr(a$well,start = 2,stop = 3)
 
 # trim data to beads we actually used
 
 a<-subset(a, subset = Bead.ID %in% c(12:15,18,19,20,21,22,25:30))
+
 
 #plot data for all beads
 ggplot(data = a,aes(x=CL1.Peak,y=CL2.Peak,color=factor(Bead.ID)))+geom_point()+
@@ -85,9 +122,8 @@ ggplot(data = a,aes(x=CL1.Peak,y=CL2.Peak,color=factor(Bead.ID)))+geom_point()+
 #show table of bead counts
 table(factor(a$Bead.ID),a$Bead.Valid)
 
-
 #threshold classify everything based on EM algorithm
-a<-lxb.digital.thresholds(a)
+a<-lxb.digital.thresholds(a,pdf.out = T,sd.threshold = 1)
 
 #summarise based on bead counts
 aa<-a %>% group_by(Bead.ID,well) %>% summarise(count=n(),bead.pos=sum(classification==1),bead.neg=sum(classification==0),bead.fraction=(bead.pos=sum(classification==1)/n()))
@@ -111,9 +147,17 @@ aa$welltype[which(aa$row==10)]<-3
 aa$welltype[which(aa$row==11)]<-3
 aa$welltype[which(aa$row==12)]<-3
 
-bead15<-aa[which(aa$Bead.ID==28),]
-bead15<-arrange(bead15,bead.fraction)
-boxplot(bead15$bead.fraction~as.numeric(bead15$welltype))
+
+bead.ag<-read.csv(file = "bead.ids.csv")
+
+aa<-merge(aa,bead.ag)
+
 aa<-aa[-(which(aa$welltype==1)),]
-ggplot(aa,aes(factor(welltype),bead.fraction))+geom_boxplot()+facet_wrap(.~factor(Bead.ID),scales = "free")
+ggplot(aa,aes(factor(welltype),bead.fraction))+geom_boxplot()+facet_wrap(.~Bead.Ag,scales = "free")
+
+
+
+
+##################
+
 
